@@ -1,0 +1,12 @@
+streamlit>=1.30
+numpy>=1.24
+pandas>=2.0
+opencv-python>=4.9
+Pillow>=10
+ultralytics>=8.0
+cvzone>=1.5
+mediapipe>=0.10
+scikit-image>=0.22
+scipy>=1.11
+insightface>=0.7
+onnxruntime>=1.16
