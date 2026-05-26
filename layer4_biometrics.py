@@ -134,6 +134,44 @@ def detect_and_embed(model, image_rgb: np.ndarray) -> FaceData | None:
     )
 
 
+def detect_and_embed_auto_rotate(
+    model,
+    image_rgb: np.ndarray,
+    confident_score: float = 0.6,
+) -> tuple[FaceData, np.ndarray, int] | None:
+    """
+    Try detection at 0°, 90°, 180°, 270° and return the orientation
+    that gave the best face. Returns (face, rotated_image, degrees).
+
+    Handles ID uploads (Aadhar, passport scans) shot in portrait when
+    the face on the card is meant to be viewed landscape. Short-circuits
+    when the original orientation already gives a confident detection
+    so the common case stays single-inference.
+    """
+    face = detect_and_embed(model, image_rgb)
+    if face is not None and face.det_score >= confident_score:
+        return face, image_rgb, 0
+
+    best_face = face
+    best_image = image_rgb
+    best_deg = 0
+    best_score = face.det_score if face is not None else -1.0
+
+    # np.rot90 with k=1 rotates 90° CCW; we try 90, 180, 270.
+    for k in (1, 2, 3):
+        rotated = np.ascontiguousarray(np.rot90(image_rgb, k=k))
+        candidate = detect_and_embed(model, rotated)
+        if candidate is not None and candidate.det_score > best_score:
+            best_face = candidate
+            best_image = rotated
+            best_deg = 90 * k
+            best_score = candidate.det_score
+
+    if best_face is None:
+        return None
+    return best_face, best_image, best_deg
+
+
 def cosine_similarity(emb1: np.ndarray, emb2: np.ndarray) -> float:
     """Dot product — both vectors are already unit-norm from InsightFace."""
     return float(np.dot(emb1, emb2))
@@ -325,10 +363,22 @@ def render() -> None:
         )
         return
 
-    # ----- Detect + embed -----
+    # ----- Detect + embed (with auto-rotation for portrait ID uploads) -----
     with st.spinner("Running detection + embedding…"):
-        ref_face = detect_and_embed(model, ref_image)
-        probe_face = detect_and_embed(model, probe_image)
+        ref_result = detect_and_embed_auto_rotate(model, ref_image)
+        probe_result = detect_and_embed_auto_rotate(model, probe_image)
+
+    ref_face = probe_face = None
+    ref_rotation = probe_rotation = 0
+    if ref_result is not None:
+        ref_face, ref_image, ref_rotation = ref_result
+    if probe_result is not None:
+        probe_face, probe_image, probe_rotation = probe_result
+
+    if ref_rotation:
+        st.info(f"↻ Reference image auto-rotated {ref_rotation}° to detect face.")
+    if probe_rotation:
+        st.info(f"↻ Probe image auto-rotated {probe_rotation}° to detect face.")
 
     if ref_face is None and probe_face is None:
         st.error(
